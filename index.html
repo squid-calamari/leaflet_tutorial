@@ -1,0 +1,183 @@
+<html>
+    <head>
+        <title> Population (2022) by  SA2 </title>
+
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.8.0/leaflet.css" />
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.8.0/leaflet.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-providers/1.13.0/leaflet-providers.min.js"
+            integrity="sha512-5EYsvqNbFZ8HX60keFbe56Wr0Mq5J1RrA0KdVcfGDhnjnzIRsDrT/S3cxdzpVN2NGxAB9omgqnlh4/06TvWCMw=="
+            crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"
+            integrity="sha512-4UKI/XKm3xrvJ6pZS5oTRvIQGIzZFoXR71rRBb1y2N+PbwAsKa5tPl2J6WvbEvwN3TxQCm8hMzsl/pO+82iRlg=="
+            crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"
+            integrity="sha512-dfX5uYVXzyU8+KHqj8bjo7UkOdg18PaOtpa48djpNbZHwExddghZ+ZmzWT06R5v6NSk3ZUfsH6FNEDepLx9hPQ=="
+            crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/chroma-js/2.4.2/chroma.min.js"
+            integrity="sha512-zInFF17qBFVvvvFpIfeBzo7Tj7+rQxLeTJDmbxjBz5/zIr89YVbTNelNhdTT+/DCrxoVzBeUPVFJsczKbB7sew=="
+            crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+        <style>
+            html, body, #map {
+                width: 100%;
+                height: 100%;
+                margin: 0;
+                padding: 0;
+            }
+
+            #title {
+                position: absolute;
+                top: 30px;
+                left: 0;
+                right: 0;
+                margin: auto;
+                z-index: 1000;
+                width: 50%;
+                text-align: center;
+                color: white;
+                border-radius: 5px;
+                padding: 10px;
+                background-color: rgba(0, 0, 0, 0.8);
+                font-family: Arial, Helvetica, sans-serif;
+                text-shadow: 2px 2px #000000;
+                font-weight: normal;
+                font-size: 1rem;
+            }
+
+            .legend h1 {
+                font-size: 1rem;
+                font-weight: bold;
+                margin-top: 0;
+            }
+
+            .legend {
+                background-color: rgba(0,0,0,0.8);
+                color: white;
+                padding: 20px;
+            }
+
+            .legend i {
+                width: 18px;
+                height: 18px;
+                float: left;
+                margin-right: 8px;
+                opacity: 0.7;
+                clear: left;
+            }
+
+            .legend i.circle {
+                border-radius: 50%;
+            }
+
+            .legend-source {
+                margin-top: 15px;
+                color: #999;
+                clear: both;
+                float: right;
+            }
+        
+        </style>
+    </head>
+    
+    <body>
+        <h1 id="title"> Population (2022) by SA2</h1>
+        <div id="map"></div>
+        <script>
+            var map =L.map('map', {
+                zoom : 6,
+                maxZoom: 10,
+                minZoom: 6,
+                center: [-41, 172]
+            })
+
+            L.tileLayer.provider("OpenStreetMap.Mapnik").addTo(map)
+
+            // Load and process CSV data (Papa is the csv parser for JS)
+            Papa.parse("https://raw.githubusercontent.com/UoA-eResearch/SA2_2022_population/main/population_by_SA2.csv",
+            {
+                download: true,
+                header: true,
+                dyanmicTyping: true,
+                complete: function(results) {
+                    console.log(results)
+                    var csvData = results.data;
+                    //row => row means if it's NaN it'll get dropped
+                    // get the max pop
+                    var maxPop = Math.max(...csvData.map(row => row["2022"]).filter(row => row))
+                    console.log(maxPop)
+
+                    // fetch the polygon data
+                    fetch('https://raw.githubusercontent.com/UoA-eResearch/SA2_2022_population/main/SA2_2022.topojson').then(result => result.json()).then(function (SA2_topojson) {
+                        console.log(SA2_topojson)
+
+                        // convert topojson to geojson
+                        var geojson=topojson.feature(SA2_topojson, Object.values(SA2_topojson.objects)[0])
+                        console.log(geojson)
+
+                        //set up a lookup for sa2 to population
+                        var population_lookup = {}
+                        for (var row of csvData) {
+                            if (row.Area) {population_lookup[row.Area.split(" ")[0]] = row
+                            }
+                        }
+                        window.population_lookup=population_lookup
+                        for (var feature of geojson.features) {
+                            feature.properties.population = population_lookup[feature.properties.SA22022_V1]
+                        }
+
+                        // color scale for chroma from colorbrewer
+                        var cmap = chroma.scale("RdYlGn").domain([maxPop, 0])
+                        window.cmap = cmap
+
+                        L.geoJSON(geojson, {
+                            onEachFeature: function(feature, layer) {
+                                var p=feature.properties;
+                                layer.bindTooltip(`${p.SA22022__1}: ${p.population["2022"]} people in 2022`)
+                                
+                                var popupText = `<h1>${p.SA22022__1}</h1>`;
+                                for (var key in p.population) {
+                                    if (key != "Area") {
+                                        popupText += `<p>${key}: ${p.population[key]}
+                                        </p>`
+                                    }
+                                }
+
+                                layer.bindPopup(popupText)
+
+                            },
+                            style: function(feature) {
+                                return {
+                                    fillColor: cmap(feature.properties.population["2022"]),
+                                    // can use something like 'red' if needed
+                                    fillOpacity: 0.5,
+                                    color:'black',
+                                    weight:.5
+                                }
+                            }
+                        }).addTo(map)
+
+                        var legend = L.control({position: 'bottomright'});
+                        legend.onAdd = function(map) {
+                            var div = L.DomUtil.create("div", "info legend")
+                            div.innerHTML += "<h1>Legend</h1>";
+                            for (var i = 0; i < maxPop; i += maxPop / 5) {
+                                console.log(i)
+                                div.innerHTML += `<i style="background: ${cmap(i)}"></i> ${i}<br>`;
+                            }
+
+                            div.innerHTML += '<div class="legend-source">Source: <a href="https://nzdotstat.stats.govt.nz/wbos/Index.aspx?DataSetCode=TABLECODE7979#">Stats NZ</a></div>'
+
+                            return div
+                        }
+                        legend.addTo(map)
+                            
+
+                    })
+                }
+            })
+
+
+        </script>
+    </body>
+
+</html>
